@@ -1,0 +1,460 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="UTF-8"> 
+    <title>Timeline Tracker GUI</title>
+    <style></style>
+</head>
+<body>
+    <canvas id="gameCanvas" width="800" height="800"></canvas>
+    <script>
+//an open source GUI by KaneTheMediocre
+//https://github.com/kanethemediocre/GUIs
+//Free to use and modify
+//Approximate code map 2/25/2021:
+//25-195 Function and class definitions
+//197-337 Fake data
+//338-372 Pre-loop declarations (most easily changed options are here)
+//374-452 Main loop
+
+const FPS = 30;
+var canvas, context;
+canvas = document.getElementById("gameCanvas"); //canvas is the draw sauce.
+context = canvas.getContext("2d");
+setInterval(update, 1000 / FPS);// set up interval (game loop)
+
+function showchart(chartdataxy, xspace, yspace, x,y){ //displays chart with specified cell dimensions and position
+	var i = 0 //assumes each column is same length, otherwise error
+	var j = 0; //This function is was originally made for the UmoSpace open source game by KaneTheMediocre.
+	while (i<chartdataxy.length){
+		var cellposx = x+i*xspace;
+		j = 0;
+		while (j<chartdataxy[0].length){
+			var cellposy = y+j*yspace;
+			context.fillText(chartdataxy[i][j],cellposx,cellposy);
+			j=j+1;
+			}
+		i=i+1;
+		}
+	}
+function drawarrow(ax,ay,asize,acolor,dir){// This function draws a simple 90 degree V-shaped arrow
+	context.strokeStyle = acolor; //acolor is color of arrow,
+	context.lineWidth = 2;
+	context.beginPath();
+	context.moveTo(ax-asize,ay-asize*dir); //asize is height of arrow, width is 2*asize
+	context.lineTo(ax,ay); //ax,ay are point of arrow coords,
+	context.lineTo(ax+asize,ay-asize*dir);//dir is +-1 for up or down
+	context.stroke();
+	}
+function drawscrollbar(arrowsx, acolor){
+	context.strokeStyle = acolor; //acolor is color of arrow,
+	context.lineWidth = 2;
+	context.beginPath();
+	context.rect(1,1,100,canvas.height-2);
+	//context.moveTo(100,0); //These are largely decorative lines indicating border of scroll hover zone
+	//context.lineTo(100,canvas.height); 
+	//context.moveTo(68,0); 
+	//context.lineTo(68,canvas.height); 
+	context.stroke();
+	drawarrow(arrowsx,canvas.height/2-arrowspacing*3,12,acolor,-1); //These are all the arrows indicating how the scroll bar works.
+	drawarrow(arrowsx,canvas.height/2-arrowspacing*3-8,12,acolor,-1);
+	drawarrow(arrowsx,canvas.height/2-arrowspacing*3-16,12,acolor,-1);
+	drawarrow(arrowsx,canvas.height/2-arrowspacing*2,12,acolor,-1);
+	drawarrow(arrowsx,canvas.height/2-arrowspacing*2-8,12,acolor,-1);
+	drawarrow(arrowsx,canvas.height/2-arrowspacing*1,12,acolor,-1);
+	drawarrow(arrowsx,canvas.height/2+arrowspacing*1,12,acolor,1);
+	drawarrow(arrowsx,canvas.height/2+arrowspacing*2,12,acolor,1);
+	drawarrow(arrowsx,canvas.height/2+arrowspacing*2+8,12,acolor,1);
+	drawarrow(arrowsx,canvas.height/2+arrowspacing*3,12,acolor,1);
+	drawarrow(arrowsx,canvas.height/2+arrowspacing*3+8,12,acolor,1);	
+	drawarrow(arrowsx,canvas.height/2+arrowspacing*3+16,12,acolor,1);
+}
+function timefromstring(tstring){//tstring is time as a string from "00:00:00" to "23:59:59".  Leading 0s are required.
+	var hours = ""+tstring[0]+tstring[1];//extracts and parses relevant numbers into separate strings
+	var minutes = ""+tstring[3]+tstring[4];
+	var seconds = ""+tstring[6]+tstring[7];
+	var totalseconds = parseInt(seconds)+parseInt(minutes)*60+parseInt(hours)*60*60;//Converts to integers, adds up total seconds from midnight
+	return totalseconds;//Returns total seconds from midnight
+	}
+var testtotalseconds = timefromstring("01:02:12"); //test function call
+function timetostring2(tinteger){
+	var hours = Math.floor(tinteger/(60*60)); //Hours are seconds divided by (60min/hr * 60sec/min)
+	var remainder = tinteger - hours*60*60;
+	var minutes = Math.floor(remainder/60); //minutes are remaining seconds divided by 60sec/min
+	var seconds = tinteger-hours*60*60-minutes*60; //seconds are whats left after hours and seconds are subtracted away
+	var timestring = "";
+	if (hours<10){timestring = timestring + "0";}//add leading 0 as needed
+	timestring = timestring + hours + ":";
+	if (minutes<10){timestring = timestring + "0";}//add leading 0 as needed
+	timestring = timestring + minutes + ":";
+	if (seconds<10){timestring = timestring + "0";}//add leading 0 as needed
+	timestring = timestring + seconds; //No ending colon
+	return timestring;	
+	}
+var testtimestrings = timetostring2(testtotalseconds);
+function timetostring(thetime){
+	var timestring = ""
+	timestring = timestring + thetime.getHours();
+	timestring = timestring + ":";
+	timestring = timestring + thetime.getMinutes();
+	return timestring;
+	}
+class Channel{//For storing and interpreting all the data for one channel
+	constructor(events,endoftime){//events will be an array of pairs of event times and event types, both in string format
+		this.formaterror = false;
+		this.eot=timefromstring(endoftime); 
+		this.washes = []; //array of times where a wash event occurred, stored as integer seconds
+		this.alerts = []; //same for alert event
+		this.violations = [];//same for violations
+		var i=0;
+		while (i<events.length){//Check every event in the log for momentary events, subject visits will be handled separately
+			if (events[i][1]=="wash"){this.washes.push(timefromstring(events[i][0]));}//add integer seconds time to wash array
+			if (events[i][1]=="alert"){this.alerts.push(timefromstring(events[i][0]));}//add integer seconds time to wash array
+			if (events[i][1]=="violation"){this.violations.push(timefromstring(events[i][0]));}//add integer seconds time to wash array
+			i=i+1;//iterate for momentary event loop
+			}
+		this.visits = []; //array for visits.  To be filled with entry/exit pairs in integer seconds
+		var i=0; 
+		var prepair = 0;
+		var pair = [];
+		var lasttype = "start"; //Tracks last type of visit entry, either enter or exit.   "start" is used to handle an exit event with no prior enter event.
+		while (i<events.length){
+			if ((events[i][1]=="exit")&&(lasttype=="start")){//If exit occurs before the entry,
+				pair = [0,timefromstring(events[i][0])]; //create a pair with a fabricated entry at midnight.  This handles cases where someone is already there.
+				this.visits.push(pair);//Could have been one line with above, but the pair variable makes it more readable.
+				lasttype = "exit";
+				}
+			else if ((events[i][1]=="exit")&&(lasttype=="exit")){//If two exits in a row,
+				this.formaterror=true; //set error state to true
+				}
+			else if ((events[i][1]=="enter")&&(lasttype=="enter")){//If two enters in a row,
+				this.formaterror=true; //set error state to true
+				} //This copy of this check is probably redundant.
+			else if (events[i][1]=="enter"){//lasttype could be "exit" or "start"
+				lasttype = "enter";
+				prepair = timefromstring(events[i][0]);//saves the entry time for later
+				while((i<events.length-1)&&(lasttype=="enter")){ //loop searches for the corresponding exit event to the entry event above.
+					i=i+1;
+					if (events[i][1]=="exit"){//finally handling the normal case here
+						pair = [prepair,timefromstring(events[i][0])];
+						this.visits.push(pair);
+						lasttype="exit";
+						}
+					else if ((events[i][1]=="enter")&&(lasttype=="enter")){//If two enters in a row,
+						this.formaterror=true; //set error state to true
+						}
+					}
+				}
+			i=i+1;//iterate for visit event pair loop
+			}
+		if (lasttype=="enter"){//if the visit loop finishes on an enter event, we need to complete the pair with "endoftime"
+			pair = [prepair,timefromstring(endoftime)];//This will create problems if we try to add to channels, rather than recreate them fresh
+			this.visits.push(pair); //because we have fabricated an exit event at endoftime.
+			}
+		}
+	draw(xpos,ypos,yscale,pcolor,wcolor,acolor,vcolor){
+		var i = 0;
+		while(i<this.visits.length){//Big visit rectangles first
+			var dt = this.eot - this.visits[i][0]; //Difference in time between timeline end and entry time. 
+			var vsize = (this.visits[i][1]-this.visits[i][0])/yscale //vsize is y length in pixels of rectangle denoting an individual visit
+			var x = xpos; //xpos signifies x position to draw trace in pixels
+			var y = ypos + dt/yscale; //ypos signifies y position of timeline end in pixels.  Will oftem be negative (offscreen).
+			context.fillStyle = pcolor;
+			context.fillRect(x,y,12,-1*vsize); //y size of rectangle is actually negative, because up is negative and js lets me do that.
+			i=i+1;
+			}
+		var i=0;
+		while (i<this.washes.length){ //small wash rectangles next
+			var dt = this.eot - this.washes[i];
+			var x = xpos - 2; //Momentary events will be rendered as wider than the presence of the individual, -2 is to maintain center
+			var y = ypos + dt/yscale;
+			context.fillStyle = wcolor;
+			context.fillRect(x,y,16,4); //Momentary events are 16 wide, 4 tall rectangles
+			i=i+1;
+			}
+		var i=0;
+		while (i<this.alerts.length){ //small alert rectangles next
+			var dt = this.eot - this.alerts[i];
+			var x = xpos - 2; //Momentary events will be rendered as wider than the presence of the individual, -2 is to maintain center
+			var y = ypos + dt/yscale;
+			context.fillStyle = acolor;
+			context.fillRect(x,y,16,4); //Momentary events are 16 wide, 4 tall rectangles
+			i=i+1;
+			}
+		var i=0;
+		while (i<this.violations.length){ //small violation rectangles next
+			var dt = this.eot - this.violations[i];
+			var x = xpos - 2; //Momentary events will be rendered as wider than the presence of the individual, -2 is to maintain center
+			var y = ypos + dt/yscale;
+			context.fillStyle = vcolor;
+			context.fillRect(x,y,16,4); //Momentary events are 16 wide, 4 tall rectangles
+			i=i+1;
+			}
+		}
+}
+//This is all fake input to simulate the data received from robots///////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//In implementation, this should be replaced with real loaded data in the same format as the fake data, translated as needed
+var inputtimestamp = "17:22:14";//This is the time at which the data was pulled.  No events may be listed after that time.
+var ch1events= [   //Channel 1 events as an array of pairs of strings, the first being the time, the 2nd being the event type.
+//Leading exit events will be handled by creating an entry event at "00:00:00" for subjects already in the room.
+	["00:23:55", "enter"],  //These events MUST be in chronological order
+	["00:34:56", "alert"], //Alerts may or may not occur
+	["00:38:23", "violation"], //violations may or may not occur
+	["00:50:10", "wash"], //washes may or may not occur
+	["01:12:43", "exit"], //exits MUST occur before the next entry event in the channel.
+	
+	["02:33:55", "enter"],  
+	["02:44:36", "alert"],  
+	["03:14:05", "wash"], 
+	["03:49:43", "exit"], 
+	
+	["05:33:55", "enter"],  
+	["05:54:36", "alert"], 
+	["06:01:11", "violation"], 
+	["06:14:05", "wash"], 
+	["07:49:43", "exit"], 
+
+	["10:31:25", "enter"],  
+	["11:43:34", "wash"], 
+	["12:49:41", "exit"],
+
+	["14:31:25", "enter"],  
+	["14:51:32", "alert"], 
+	["15:21:54", "violation"],  
+	["16:49:41", "exit"], 	
+	
+	["17:01:25", "enter"],  //This last entry is not followed by an exit,
+	["17:11:32", "alert"] //so the subject will be assumed to be in the room until the input timestamp
+	]
+let ch1 = new Channel(ch1events,inputtimestamp);
+var ch2events= [   //Channel 2 events as an array of pairs of strings, the first being the time, the 2nd being the event type.
+//Leading exit events will be handled by creating an entry event at "00:00:00" for subjects already in the room.
+	["02:23:55", "enter"],  //These events MUST be in chronological order
+	["02:34:56", "alert"], //Alerts may or may not occur
+	["02:38:23", "violation"], //violations may or may not occur
+	["02:50:10", "wash"], //washes may or may not occur
+	["03:12:43", "exit"], //exits MUST occur before the next entry event in the channel.
+	
+	["04:33:55", "enter"],  
+	["04:44:36", "alert"],  
+	["05:14:05", "wash"], //ch2 was crudely fabricated by adding 2 hours to ch1 events
+	["05:49:43", "exit"], 
+	
+	["07:33:55", "enter"],  
+	["07:54:36", "alert"], 
+	["08:01:11", "violation"], 
+	["08:14:05", "wash"], 
+	["09:49:43", "exit"], 
+
+	["12:31:25", "enter"],  
+	["13:43:34", "wash"], 
+	["14:49:41", "exit"],
+
+	["16:31:25", "enter"],  
+	["16:51:32", "alert"], 
+	["17:21:54", "violation"]//as with ch1 the lack of exit will be handled by creating an exit event at the end of time
+	]
+let ch2 = new Channel(ch2events,inputtimestamp);
+var ch3events= [   //Channel 3 events as an array of pairs of strings, the first being the time, the 2nd being the event type.
+//Leading exit events will be handled by creating an entry event at "00:00:00" for subjects already in the room.
+//No entry event in ch3 example
+	["00:34:56", "alert"], //Alerts may or may not occur
+	["00:38:23", "violation"], //violations may or may not occur
+	["00:50:10", "wash"], //washes may or may not occur
+	["01:12:43", "exit"], //exits MUST occur before the next entry event in the channel.
+	
+	["06:13:55", "enter"],  
+	["08:19:43", "exit"], 
+
+	["11:31:25", "enter"],  
+	["13:13:34", "wash"], 
+	["14:12:46", "exit"]
+	]
+let ch3 = new Channel(ch3events,inputtimestamp);
+var ch4events= [   //Channel41 events as an array of pairs of strings, the first being the time, the 2nd being the event type.
+//Leading exit events will be handled by creating an entry event at "00:00:00" for subjects already in the room.
+	["10:13:55", "enter"],
+	["11:33:34", "alert"], 	
+	["12:11:43", "exit"], 
+
+	["11:31:25", "enter"],  
+	["13:13:34", "wash"], 
+	["14:12:46", "exit"]
+	]
+let ch4 = new Channel(ch4events,inputtimestamp);
+var ch5events= [
+	["01:00:00", "enter"], //test for alignment
+	["02:00:00", "exit"], 	
+
+	["03:00:00", "enter"],
+	["04:00:00", "exit"], 	 
+
+	["05:00:00", "enter"],
+	["06:00:00", "exit"], 	 
+	
+	["07:00:00", "enter"],
+	["08:00:00", "exit"], 	
+	
+	["09:00:00", "enter"],
+	["10:00:00", "exit"], 	
+
+	["11:00:00", "enter"],
+	["12:00:00", "exit"], 	
+	
+	["13:00:00", "enter"],
+	["14:00:00", "exit"], 	
+
+	["15:00:00", "enter"],
+	["16:00:00", "exit"], 	
+
+];   
+let ch5 = new Channel(ch5events,inputtimestamp);
+var ch6events= [];   //More empty channels. But they'd work if they had data
+let ch6 = new Channel(ch6events,inputtimestamp);
+var ch7events= [];   
+let ch7 = new Channel(ch7events,inputtimestamp);
+var ch8events= [];   
+let ch8 = new Channel(ch8events,inputtimestamp);
+var ch9events= [];  
+let ch9 = new Channel(ch9events,inputtimestamp);
+var ch10events= [];   
+let ch10 = new Channel(ch10events,inputtimestamp);
+var ch11events= [];   
+let ch11 = new Channel(ch11events,inputtimestamp);
+var ch12events= [];   
+let ch12 = new Channel(ch12events,inputtimestamp);
+var ch13events= [];   
+let ch13 = new Channel(ch13events,inputtimestamp);
+var ch14events= [
+	["10:13:55", "enter"],
+	["11:33:34", "alert"], 	
+	["12:11:43", "exit"], 
+
+	["11:31:25", "enter"],  
+	["13:13:34", "wash"], 
+	["14:12:46", "exit"]
+	];   //channel 14 has data to check that it fits, copied from ch4
+let ch14 = new Channel(ch14events,inputtimestamp);
+var timestep = 60*30; //30 minutes of seconds
+var yspacing = 64; //Space between timesteps;
+var toptime = timefromstring(inputtimestamp); //Seconds from midnight of update timestamp
+var toptimeround = Math.floor(toptime/timestep)*timestep; //Seconds from midnight of last timestep before update
+var times2 = [timetostring2(toptimeround)]; //List of timesteps counting backwards from toptimeround to midnight.
+var step = [""];//List of empty strings, of same length as times2, for compatibility with chart function.
+var itime = toptimeround;//itime keeps track of the next time to enter into the times2 array
+while (itime>0){
+	itime=itime-timestep; //bumps down to the next timestep in integers
+	times2.push(timetostring2(itime)); //adds the string expression of the itime integer to times2
+	step.push("");
+	}
+var timelinesize = times2.length;
+var charttest = [times2, step]; //Y axis chart of times
+var scrollv = 0; //Vertical scroll velocity initialized to zero
+var charty = 0; //Y axis (time) position on screen coordinates
+var mousex = 0; //Mouse position variables
+var mousey = 0;
+var scrollspeed = 2; //Multiplier to customize scroll speed, not used yet
+var mincharty = -32-timelinesize*yspacing+canvas.height; //Minimum value for chart y position. 
+var maxcharty = 32; //Maximum value for same, range of charty is mostly negative.
+var maxscrollv = 20; //Maximum pixels per frame scroll speed
+var ayscale = timestep/yspacing; //seconds per pixel on y axis scale
+var arrowxpos =84;//X position of arrow indicators on scroll bar
+var arrowspacing = canvas.height/8+16; //vertical spacing between arrows.  There will be 6 of them to help indicate the variable scroll acceleration
+var chartyoffset = (toptime-toptimeround)/ayscale; //To compensate for difference between actual end of time and rounded end of time
+var bgcolor = "black";
+var scrollbgcolor = "black";
+var timetextcolor = "white";
+var scrollarrowcolor = "blue";
+var scrollbordercolor = "blue";
+var visitcolor = "grey";
+var washcolor = "blue";
+var alertcolor = "orange";
+var violationcolor = "red";
+var hgridcolor = "darkgrey"; //these last 2 not used yet
+var vgridcolor = "darkslategrey";
+
+function update() {
+	context.fillStyle = bgcolor;//Background is black
+	context.fillRect(0, 0, canvas.width, canvas.height); //rectangle the size of the canvas.
+	context.fillStyle = scrollbgcolor;//Background is black
+	context.fillRect(0, 0, 100, canvas.height); //rectangle the size of the canvas.	
+	
+	context.fillStyle = timetextcolor;
+	context.font = '16px Ariel';
+	//context.fillText(testtotalseconds,600,600); //for testing, conversion from time string to integer seconds
+	//context.fillText(testtimestrings,600,620); //for testing, conversion from integer seconds to time string
+	var ayscale = timestep/yspacing; //Establishes amount of time in seconds per pixel on the Y-axis scale
+	//context.fillText(scrollv,300,300); //for testing, prints current scroll velocity
+	//context.fillText(mousex,300,320); //for testing, prints current mouse x position
+	//context.fillText(mousey,300,340); //for testing, prints current mouse y position
+	//context.fillText(charty,300,360); //for testing, prints current chart y position
+	//context.fillText(ch1.washes,300,380); //for testing, prints washes from ch1
+	//context.fillText(ch1.visits[0],300,400); //for testing, prints visits from ch1
+	charty = charty + scrollv; //Moves chart Y position by scrollv pixels per frame
+	if (scrollv>maxscrollv){scrollv=maxscrollv;} //If scroll velocity exceeds maximum on positive side, set scroll velocity to maximum positive
+	else if (scrollv<-1*maxscrollv){scrollv=-1*maxscrollv;} //Same as above, but for negative scroll velocity
+	if ((mousex<100)&&(mousex>0)){ // If the mouse is hovering over the scroll bar....
+		var rawdy = mousey-canvas.height/2; //Difference in Y position between vertical center and mouse position
+		var dyprop = -1*rawdy/(canvas.height/2); //Above, expressed as numbers between -1 and 1.
+		scrollv = scrollv + scrollspeed*dyprop; //Adds half of above (half is arbitrary, higher accelerates faster) to the scroll velocity
+		}else if (scrollv>1){scrollv=scrollv-1;}  //Otherwise, if not over scroll bar, slow down scroll rate (slow braking)
+		else if (scrollv<-1){scrollv=scrollv+1;}
+		else {scrollv = 0;}
+	if (charty<mincharty){ //If chart past minimum boundary,
+		scrollv = 0; //stop the chart movement
+		charty = mincharty; //set chart position to minimum
+	}else if (charty>maxcharty){ //same for maximum boundary
+		scrollv = 0;
+		charty = maxcharty;
+		}
+	showchart(charttest, 64, yspacing, 8,charty+chartyoffset);
+	ch1.draw(128,charty,ayscale,visitcolor,washcolor,alertcolor,violationcolor);
+	ch2.draw(160,charty,ayscale,visitcolor,washcolor,alertcolor,violationcolor);
+	ch3.draw(192,charty,ayscale,visitcolor,washcolor,alertcolor,violationcolor);
+	ch4.draw(224,charty,ayscale,visitcolor,washcolor,alertcolor,violationcolor);
+	ch5.draw(256,charty,ayscale,visitcolor,washcolor,alertcolor,violationcolor);
+	ch6.draw(288,charty,ayscale,visitcolor,washcolor,alertcolor,violationcolor);
+	ch7.draw(320,charty,ayscale,visitcolor,washcolor,alertcolor,violationcolor);
+	ch8.draw(352,charty,ayscale,visitcolor,washcolor,alertcolor,violationcolor);
+	ch9.draw(384,charty,ayscale,visitcolor,washcolor,alertcolor,violationcolor);
+	ch10.draw(416,charty,ayscale,visitcolor,washcolor,alertcolor,violationcolor);
+	ch11.draw(448,charty,ayscale,visitcolor,washcolor,alertcolor,violationcolor);
+	ch12.draw(480,charty,ayscale,visitcolor,washcolor,alertcolor,violationcolor);
+	ch13.draw(512,charty,ayscale,visitcolor,washcolor,alertcolor,violationcolor);
+	ch14.draw(544,charty,ayscale,visitcolor,washcolor,alertcolor,violationcolor);
+	drawscrollbar(arrowxpos,scrollarrowcolor);
+//////////////////////Mouse input handling//////////////////////////////////////////
+document.addEventListener("mousemove", mouseMoveHandler, false);
+function mouseMoveHandler(e) {
+	mousex = e.clientX;
+	mousey = e.clientY;
+}
+////////////////////////////////////////////////////////Keyboard input/////////////////////////////////////
+window.addEventListener("keydown", function (event) {//Not currently used
+  if (event.defaultPrevented) {
+    return; // Do nothing if the event was already processed
+  }
+  switch (event.key) { 
+    case " ":
+
+      break;   
+	case "]": 
+
+      break;
+	case "[": 
+
+      break;	  
+
+    default:
+      return; // Quit when this doesn't handle the key event.
+  } //end event key handling switch
+  event.preventDefault();// Cancel the default action to avoid it being handled twice
+}, true);	//end of event key handling, not clear what the ", true);" is about	
+
+}//end update function
+
+    </script>
+
+</body>
+</html>
