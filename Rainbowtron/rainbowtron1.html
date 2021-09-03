@@ -1,0 +1,417 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+<style>
+    {
+        box-sizing: border-box;
+    }
+    /* Set additional styling options for the columns*/
+    .column {
+    float: left;
+    }
+    .row:after {
+    content: "";
+    display: table;
+    clear: both;
+    }
+    </style>
+ </head>
+ <body>
+    <div class="row">
+        <div class="column" style="background-color:#FFFFFF; column-width: 800px;" >
+               <canvas id="gameCanvas" width="800" height="800"></canvas>
+    <script>
+	
+class GridImage{
+	constructor(xsize,ysize,initialcolor){
+		this.thegrid = [];
+		var i=0;
+		while (i<xsize){
+			var j=0;
+			this.thegrid.push([])
+			while(j<ysize){
+				this.thegrid[i].push(initialcolor);
+				j++;
+				}
+			i++;
+			}
+		}
+	draw(xpos,ypos,scale){
+		var i=0;
+		while (i<this.thegrid.length){
+			var j=0;
+			while (j<this.thegrid[0].length){ //Could be thegrid[i], they should all be the same though.
+				context.fillStyle = this.thegrid[i][j];//Background is black
+				context.fillRect(xpos+i*scale, ypos+j*scale, scale, scale); //rectangle the size of the canvas.
+				j++;
+				}
+			i++;
+			}
+		}
+	setoutline(color){
+		//Horizontal sides
+		var i=0;
+		while(i<this.thegrid.length){
+			this.thegrid[i][0] = color;
+			this.thegrid[i][this.thegrid.length-1] = color; //cant set property 0 of undefined
+			i++;
+			}
+		//Vertical sides
+		var i=0;
+		while(i<this.thegrid[0].length){
+			this.thegrid[0][i] = color;
+			this.thegrid[this.thegrid.length-1][i] = color; //cant set property 0 of undefined
+			i++;
+			}
+		}
+	}
+	
+	
+	
+const FPS = 30;
+var canvas, context;
+canvas = document.getElementById("gameCanvas"); //canvas is the draw sauce.
+context = canvas.getContext("2d");
+setInterval(update, 1000 / FPS);// set up interval (game loop)
+function showchart(chartdataxy, xspace, yspace, x,y){ //displays chart with specified cell dimensions and position
+	var i = 0 //assumes each column is same length, otherwise error
+	var j = 0;
+	while (i<chartdataxy.length){
+		var cellposx = x+i*xspace;
+		j = 0;
+		while (j<chartdataxy[0].length){
+			var cellposy = y+j*yspace;
+			context.fillText(chartdataxy[i][j],cellposx,cellposy);
+			j=j+1;
+			}
+		i=i+1;
+		}
+	}
+//var cxytest = [ ["first", "column", "of", "words"], ["2nd", "column", "of", "words"]       ];
+//showchart(cxytest, 64, 16, 300,300);
+function directionof(dx,dy){ //Uses x and y displacement to return an angle
+	var dirof = -1*Math.atan2(dx,dy) - Math.PI/2;//Sort of trial and error for this
+	return dirof;	
+	}
+function addvector(x1,y1,vsize,dir){
+	var x2 = x1 + vsize*Math.cos(dir);
+	var y2 = y1 + vsize*Math.sin(dir);
+	return [x2,y2];
+	}
+function showvector(x1,y1,dir,vcolor){ //A visual indicator of a direction, mostly for testing
+	var vsize = 16;
+	var point = addvector(x1,y1,vsize,dir);
+	context.strokeStyle = vcolor;
+	context.beginPath();
+	context.moveTo(x1,y1);
+	context.lineTo(point[0],point[1]);
+	context.stroke();
+	}
+
+function draworthopath(px,py, xlist, ylist, size, color1, color2){
+	var fx = px + xlist[0]*size; 
+	var fy = py + ylist[0]*size;
+	context.strokeStyle = color1;
+	context.beginPath();
+	context.moveTo(fx, fy); 
+	i = 0;
+	while(i<xlist.length-1){
+		i=i+1;
+		var ix = px + xlist[i]*size;
+		var iy = py + ylist[i]*size;
+		context.lineTo(ix, iy);
+		}
+	context.stroke();
+	if (color2 !== 0){
+		context.strokeStyle = color2;
+		context.beginPath();
+		context.moveTo(fx,fy);
+		context.lineTo(xlist[xlist.length-1]*size,ylist[ylist.length-1]*size);
+		context.stroke();
+		}
+	}
+function pointstoslopeintercept(x1,y1,x2,y2){//returns [m,b]
+	var m = 0;
+	var b = 0;
+	var dx = x2-x1;
+	var dy = y2-y1;
+	if (dx*dx<.000001){//Could trigger unnecessarily for very small lines, but I'm willing to risk it
+		m = "vertical";//for error handling to avoid infinite or very large numbers
+		b = "vertical";
+		}else{
+		m = dy/dx;
+		b = y1-x1*m;
+		}//y1 = x1*m+b, y1-x1*m = b
+	return [m,b];
+	}
+function findintersection(x11,y11,x12,y12,x21,y21,x22,y22){//returns [x,y,bool], where boolean is true if x,y is on the line segments
+	var line1 = pointstoslopeintercept(x11,y11,x12,y12);
+	var line2 = pointstoslopeintercept(x21,y21,x22,y22);
+	var m1 = line1[0];
+	var b1 = line1[1];
+	var m2 = line2[0];
+	var b2 = line2[1];
+	var intersect = 0; //placeholder value
+	var result = 0; //placeholder value
+	if (m1==m2){result = "parallel";}//"parallel" is a form of error handling indicating no intersection exists
+	else if (m1 == "vertical"){
+		var x = x11;//if line1 is vertical, x is constant for line1, and the intersection will have that x value
+		var y = x*m2 + b2;//plug that x value into the line 2 equation.
+		}
+	else if (m2 == "vertical"){
+		var x = x21;//if line2 is vertical, x is constant for line2,
+		var y = x*m1+b1;//plug that x value into the line 1 equation.
+		}
+	else{
+		var m1 = line1[0];
+		var b1 = line1[1];
+		var m2 = line2[0];
+		var b2 = line2[1];
+		var x = (b2-b1)/(m1-m2);//x*m1+b1 = x*m2+b2, x*m1 = x*m2+b2-b1, x*m1-x*m2 = b2-b1, x(m1-m2) =b2-b1, x = (b2-b1)/(m1-m2)
+		var y = m1*x+b1;
+		}
+	if (result==0){
+		if ((x>x11)&&(x>x12)){intersect=false;}//if x is larger than line1 domain
+		else if ((x<x11)&&(x<x12)){intersect=false;}//or smaller than line1 domain
+		else if ((x>x21)&&(x>x22)){intersect=false;}//or larger than line2 domain
+		else if ((x<x21)&&(x<x22)){intersect=false;}//or smaller than line2 domain, then the line segments do not intersect
+		else {intersect=true;}
+		result = [x,y,intersect]; 
+		}
+	return result;
+	}
+function isinsideloop(x,y,axloop,ayloop){
+	var i=0;
+	var intersections = 0;
+	var L=axloop.length;
+	var segmentstatus = findintersection(x,y,x+1000,y,axloop[L-1],ayloop[L-1],axloop[i],ayloop[i]);//checks segment of last point to first point
+	if (segmentstatus[2]==true){intersections=intersections+1;}
+	while (i<axloop.length-1){
+		var segmentstatus = findintersection(x,y,x+1000,y,axloop[i],ayloop[i],axloop[i+1],ayloop[i+1]); //checks segment of point i to point i+1
+		if (segmentstatus[2]==true){intersections=intersections+1;}
+		i=i+1;
+		}
+	if (intersections%2==1){return true;}else{return false;}
+	}
+function insidecorner(axloop,ayloop,i,noz){//Will not work for first or last point in loop
+	var dx1 = axloop[i]-axloop[i-1];
+	var dy1 = ayloop[i]-ayloop[i-1];
+	var dir1 = directionof(dx1,dy1);
+	var dx2 = axloop[i]-axloop[i+1];
+	var dy2 = ayloop[i]-ayloop[i+1];
+	var dir2 = directionof(dx2,dy2);
+	var dir3 = (dir1 + dir2)/2;
+	var dir4 = dir3+Math.PI;
+	var dir5 = "error"; //Correct direction will overwrite this
+	var point3 = addvector(axloop[i],ayloop[i],1,dir3);
+	var point4  = addvector(axloop[i],ayloop[i],1,dir4);
+	if (isinsideloop(point3[0],point3[1],axloop,ayloop)){dir5=dir3;}else{dir5=dir4;}//dir5 is now correct direction
+	var dir5distance = noz/(Math.sin(dir1-dir5));
+	return addvector(axloop[i],ayloop[i],dir5distance,dir5);//returns [x,y] of inside corner point
+	}
+
+var mousex = 0;
+var mousey = 0;
+var lastpointx = 0;
+var lastpointy = 0;
+var selectindex = 0;
+var scale = 8; //number of pixels per millimeter
+var snap = 2; //snap size in mm
+var grid = 1; //Grid state, 0 = off, 1 = on, 2 = one grid every 2 snaps
+var xloop = []; //X and Y points for active loop 
+var yloop = []; //A loop represents 1 layer.
+
+
+	var initialgrid = new GridImage(100,100,"red"); //constructor(xsize,ysize,initialcolor){
+	initialgrid.setoutline("yellow");
+
+function update() {
+	context.fillStyle = "black";//Background is black
+	context.fillRect(0, 0, canvas.width, canvas.height); //rectangle the size of the canvas.
+
+	initialgrid.draw(100,100,4);
+
+}
+	//showvector(200,300,1,"teal"); //works as expected
+//////////////////////Mouse input handling//////////////////////////////////////////
+document.addEventListener("mousemove", mouseMoveHandler, false);
+function mouseMoveHandler(e) {
+	mousex = e.clientX;
+	mousey =  e.clientY;
+}
+//document.addEventListener('click',(event) => {
+//    console.log('clicked');
+//});
+////////////////////////////////////////////////////////Keyboard input/////////////////////////////////////
+window.addEventListener("keydown", function (event) {
+  if (event.defaultPrevented) {
+    return; // Do nothing if the event was already processed
+  }
+  switch (event.key) { 
+    case " ":
+	var clickx = mousex/scale;
+	var snappedx = snap*Math.floor(clickx/snap);
+	var clicky = mousey/scale;
+	var snappedy = snap*Math.floor(clicky/snap);
+	if (tool == 0){
+		xloop.push(snappedx);
+		yloop.push(snappedy);
+	}else if (tool == 1){
+		xloop.splice(selectindex, 0, snappedx);
+		yloop.splice(selectindex, 0, snappedy);
+		}
+      break;   
+	case "]": 
+		if (selectindex < xloop.length-1){ selectindex = selectindex+1; }
+		else { selectindex = 0; }
+      break;
+	case "[": 
+		if (selectindex > 0 ){ selectindex = selectindex-1; }
+		else { selectindex = xloop.length-1; }
+      break;	  
+	case "Control":
+		
+		break;
+	case "g":    //grid toggle
+		if (grid==0){grid=1;}else{grid=0;}
+	  break;
+	case "s": //save gcode
+xpath = [];
+ypath = [];
+zpath = [];
+epath = [];
+var z=0;
+while (z<zheight){//For all layers (z coords)
+	z=z+layerheight;
+	xpath.push(xloop[0]);//adds first point
+	ypath.push(yloop[0]);
+	zpath.push(z);
+	var i=0
+	while (i<xloop.length-1){ //For all points in loop
+		i=i+1;
+		xpath.push(xloop[i]); //add point from xloop to xpath
+		ypath.push(yloop[i]);
+		zpath.push(z); //add z coordinate to zpath
+		}
+	}
+var i=1;
+epath.push(0);//Origin has 0 extruder position
+epath.push(0); //First point in polygon has 0 extruder position
+while (i<xpath.length-1){	
+	i=i+1;
+	var dx = xpath[i]-xpath[i-1];
+	var dy = ypath[i]-ypath[i-1];
+	var distance = Math.sqrt(dx*dx+dy*dy);
+	var estep = distance*GooCoefficient;
+	epath.push(epath[i-1]+estep);
+}
+gcode = "G28 \nG21 \nG90 \nG92 E0 \nM82";
+var i=0
+gcode = gcode + "G1 X"+xpath[0];
+gcode = gcode + " Y" + ypath[0];
+gcode = gcode + " Z" + zpath[0];
+gcode = gcode + " E" + epath[0];
+gcode = gcode + " F1200 \n"; //fixed feedrate 1200mm/min, 20mm/s
+
+while (i<xpath.length-1){
+	i=i+1;
+	gcode = gcode + "G1 X"+xpath[i];
+	gcode = gcode + " Y" + ypath[i];
+	gcode = gcode + " Z" + zpath[i];
+	gcode = gcode + " E" + epath[i];
+	gcode = gcode + " F1200 \n"; //fixed feedrate 1200mm/min, 20mm/s
+	}
+
+     	break;
+	case "+": 
+		scale = scale + 1;
+    	  break;		  
+	case "-": 
+		if (scale>1){scale=scale-1;}
+		break;	  
+	case "ArrowRight": 
+		xloop[selectindex]=xloop[selectindex]+snap;
+    	  break;
+	case "ArrowLeft": 
+		xloop[selectindex]=xloop[selectindex]-snap;
+    	  break;		  
+	case "ArrowUp": 
+		yloop[selectindex]=yloop[selectindex]-snap;
+     	 break;
+	case "ArrowDown": 
+		yloop[selectindex]=yloop[selectindex]+snap;                                          
+      break;
+	 case "Enter": 
+		addfilltrapv(xloop,yloop,startx,starty,sizex,sizey,m1,b1,m2,b2,nozzle);	
+      break;
+	case "Delete": 
+		xloop.splice(selectindex, 1);
+		yloop.splice(selectindex, 1);
+      break;
+    default:
+      return; // Quit when this doesn't handle the key event.
+  } //end event key handling switch
+  event.preventDefault();// Cancel the default action to avoid it being handled twice
+}, true);	//end of event key handling, not clear what the ", true);" is about	
+
+
+//file save functionality
+(function () {
+var textFile = null,
+  makeTextFile = function (text) {
+    var data = new Blob([text], {type: 'text/plain'});
+    // If we are replacing a previously generated file we need to
+    // manually revoke the object URL to avoid memory leaks.
+    if (textFile !== null) {
+      window.URL.revokeObjectURL(textFile);
+    }
+    textFile = window.URL.createObjectURL(data);
+    return textFile;
+  };
+  var create = document.getElementById('create'),
+    textbox = document.getElementById('textbox');
+// create.addEventListener('click', function () {
+//    var link = document.getElementById('downloadlink');
+//    link.href = makeTextFile(gcode);
+//    link.style.display = 'block';
+//  }, false);
+})();
+
+    </script>
+            <p>Data..</p>
+        </div>
+        <div class="column" style="background-color:000000; column-width:200px">
+<br>
+<br>
+<input type="button" value="Zoom in" onclick="scale=scale+1;" />
+<input type="button" value="Zoom out" onclick="scale=scale-1;" />
+<br>
+<br>
+<input type="button" value="Snap size +" onclick="if (snap<1){snap=snap*2;}else{snap=snap+1;}" />
+<input type="button" value="Snap size -" onclick="if (snap<1.01){snap=snap/2;}else{snap=snap-1};" />
+<br>
+<br>
+<input type="button" value="Grid size +" onclick="grid=grid+1;" />
+<input type="button" value="Grid size -" onclick="if(grid>1){grid=grid-1;}" />
+<br>
+<br>
+<input type="button" value="height +" onclick="zheight=zheight+layerheight;" />
+<input type="button" value="height -" onclick="zheight=zheight-layerheight;" />
+<br>
+<br>
+<input type="button" value="Tool +" onclick="if (tool<2){tool=Math.floor(tool+1);}" />
+<input type="button" value="Tool -" onclick="if (tool>0){tool=Math.floor(tool-1);}" />
+<br>
+<br>
+<button id="create">Create a gcode file</button>
+<a download="printme.gcode" id="downloadlink" style="display: none">Download</a>
+
+        </div>
+    </div>
+    <meta charset="UTF-8"> 
+    <title>Rainbowtron 1 by KaneTheMediocre</title>
+    <style></style>
+</head>
+
+</html>
